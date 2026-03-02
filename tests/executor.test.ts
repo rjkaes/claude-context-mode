@@ -63,12 +63,33 @@ async function main() {
     );
   });
 
-  await test("detects Shell runtime (bash or sh)", async () => {
+  await test("detects Shell runtime (non-empty string)", async () => {
     assert.ok(
-      ["bash", "sh"].includes(runtimes.shell),
+      typeof runtimes.shell === "string" && runtimes.shell.length > 0,
       `Got: ${runtimes.shell}`,
     );
   });
+
+  if (process.platform === "win32") {
+    await test("Windows: shell is Git Bash or fallback, never WSL bash", async () => {
+      const shell = runtimes.shell.toLowerCase();
+      assert.ok(
+        !shell.includes("system32") && !shell.includes("windowsapps"),
+        `Shell should not be WSL bash, got: ${runtimes.shell}`,
+      );
+    });
+
+    await test("Windows: shell execute works with non-ASCII (Chinese) project path", async () => {
+      const chineseDir = "C:\\Users\\NINGMEI\\AppData\\Local\\Temp\\测试目录";
+      const { mkdirSync, rmSync } = await import("node:fs");
+      try { mkdirSync(chineseDir, { recursive: true }); } catch {}
+      const chineseExecutor = new PolyglotExecutor({ runtimes, projectRoot: chineseDir });
+      const r = await chineseExecutor.execute({ language: "shell", code: 'echo "chinese path ok"' });
+      assert.equal(r.exitCode, 0, `Failed with stderr: ${r.stderr}`);
+      assert.ok(r.stdout.includes("chinese path ok"), `Got: ${r.stdout}`);
+      try { rmSync(chineseDir, { recursive: true, force: true }); } catch {}
+    });
+  }
 
   await test("detects TypeScript runtime", async () => {
     assert.ok(runtimes.typescript !== null, "No TS runtime found");
@@ -1084,43 +1105,23 @@ IO.puts("has users: #{String.contains?(file_content, "users")}")
   // ===== WINDOWS SHELL SUPPORT =====
   console.log("\n--- Windows Shell Support ---\n");
 
-  await test("execute returns error when shell runtime is null (not ENOENT crash)", async () => {
-    const noShellRuntimes: RuntimeMap = { ...runtimes, shell: null };
-    const noShellExecutor = new PolyglotExecutor({ runtimes: noShellRuntimes });
-    const r = await noShellExecutor.execute({
-      language: "shell",
-      code: 'echo "hello"',
-    });
-    // Should get a non-zero exit code with a meaningful error, NOT an unhandled ENOENT
-    assert.notEqual(r.exitCode, 0, "Should fail when shell is null");
+  await test("shell runtime is always a non-empty string", async () => {
     assert.ok(
-      r.stderr.toLowerCase().includes("shell") || r.stderr.toLowerCase().includes("not available"),
-      `Expected meaningful error about shell, got: ${r.stderr}`,
+      typeof runtimes.shell === "string" && runtimes.shell.length > 0,
+      `shell should always be a non-empty string, got: ${runtimes.shell}`,
     );
   });
 
-  await test("getAvailableLanguages excludes shell when runtime is null", async () => {
-    const noShellRuntimes: RuntimeMap = { ...runtimes, shell: null };
+  await test("getAvailableLanguages always includes shell", async () => {
     const { getAvailableLanguages } = await import("../src/runtime.js");
-    const langs = getAvailableLanguages(noShellRuntimes);
-    assert.ok(!langs.includes("shell"), `shell should not be in available languages when null, got: ${langs}`);
+    const langs = getAvailableLanguages(runtimes);
+    assert.ok(langs.includes("shell"), `shell should always be in available languages, got: ${langs}`);
   });
 
-  await test("buildCommand throws for null shell", async () => {
-    const noShellRuntimes: RuntimeMap = { ...runtimes, shell: null };
-    let threw = false;
-    let errorMsg = "";
-    try {
-      buildCommand(noShellRuntimes, "shell", "/tmp/script.sh");
-    } catch (err: unknown) {
-      threw = true;
-      errorMsg = err instanceof Error ? err.message : String(err);
-    }
-    assert.ok(threw, "buildCommand should throw when shell is null");
-    assert.ok(
-      errorMsg.toLowerCase().includes("no shell") || errorMsg.toLowerCase().includes("not available"),
-      `Expected shell-related error, got: ${errorMsg}`,
-    );
+  await test("buildCommand returns shell command array", async () => {
+    const cmd = buildCommand(runtimes, "shell", "/tmp/script.sh");
+    assert.ok(Array.isArray(cmd) && cmd.length === 2, `Expected [shell, path], got: ${cmd}`);
+    assert.equal(cmd[1], "/tmp/script.sh");
   });
 
   // ===== SUMMARY =====

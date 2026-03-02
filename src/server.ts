@@ -6,6 +6,13 @@ import { z } from "zod";
 import { PolyglotExecutor } from "./executor.js";
 import { ContentStore, cleanupStaleDBs, type SearchResult } from "./store.js";
 import {
+  readBashPolicies,
+  evaluateCommandDenyOnly,
+  extractShellCommands,
+  readToolDenyPatterns,
+  evaluateFilePath,
+} from "./security.js";
+import {
   detectRuntimes,
   getRuntimeSummary,
   getAvailableLanguages,
@@ -62,6 +69,93 @@ function trackResponse(toolName: string, response: ToolResult): ToolResult {
 
 function trackIndexed(bytes: number): void {
   sessionStats.bytesIndexed += bytes;
+}
+
+// ==============================================================================
+// Security: server-side deny firewall
+// ==============================================================================
+
+/**
+ * Check a shell command against Bash deny patterns.
+ * Returns an error ToolResult if denied, or null if allowed.
+ */
+function checkDenyPolicy(
+  command: string,
+  toolName: string,
+): ToolResult | null {
+  try {
+    const policies = readBashPolicies(process.env.CLAUDE_PROJECT_DIR);
+    const result = evaluateCommandDenyOnly(command, policies);
+    if (result.decision === "deny") {
+      return trackResponse(toolName, {
+        content: [{
+          type: "text" as const,
+          text: `Command blocked by security policy: matches deny pattern ${result.matchedPattern}`,
+        }],
+        isError: true,
+      });
+    }
+  } catch {
+    // Security check failed — allow through (fail-open for server,
+    // hooks are the primary enforcement layer)
+  }
+  return null;
+}
+
+/**
+ * Check non-shell code for shell-escape calls against deny patterns.
+ */
+function checkNonShellDenyPolicy(
+  code: string,
+  language: string,
+  toolName: string,
+): ToolResult | null {
+  try {
+    const commands = extractShellCommands(code, language);
+    if (commands.length === 0) return null;
+    const policies = readBashPolicies(process.env.CLAUDE_PROJECT_DIR);
+    for (const cmd of commands) {
+      const result = evaluateCommandDenyOnly(cmd, policies);
+      if (result.decision === "deny") {
+        return trackResponse(toolName, {
+          content: [{
+            type: "text" as const,
+            text: `Command blocked by security policy: embedded shell command "${cmd}" matches deny pattern ${result.matchedPattern}`,
+          }],
+          isError: true,
+        });
+      }
+    }
+  } catch {
+    // Fail-open
+  }
+  return null;
+}
+
+/**
+ * Check a file path against Read deny patterns.
+ * Returns an error ToolResult if denied, or null if allowed.
+ */
+function checkFilePathDenyPolicy(
+  filePath: string,
+  toolName: string,
+): ToolResult | null {
+  try {
+    const denyGlobs = readToolDenyPatterns("Read", process.env.CLAUDE_PROJECT_DIR);
+    const result = evaluateFilePath(filePath, denyGlobs);
+    if (result.denied) {
+      return trackResponse(toolName, {
+        content: [{
+          type: "text" as const,
+          text: `File access blocked by security policy: path matches Read deny pattern ${result.matchedPattern}`,
+        }],
+        isError: true,
+      });
+    }
+  } catch {
+    // Fail-open
+  }
+  return null;
 }
 
 // Build description dynamically based on detected runtimes
@@ -237,6 +331,15 @@ server.registerTool(
     }),
   },
   async ({ language, code, timeout, intent }) => {
+    // Security: deny-only firewall
+    if (language === "shell") {
+      const denied = checkDenyPolicy(code, "execute");
+      if (denied) return denied;
+    } else {
+      const denied = checkNonShellDenyPolicy(code, language, "execute");
+      if (denied) return denied;
+    }
+
     try {
       // For JS/TS: wrap in async IIFE with fetch interceptor to track network bytes
       let instrumentedCode = code;
@@ -455,6 +558,10 @@ server.registerTool(
     }),
   },
   async ({ path, language, code, timeout, intent }) => {
+    // Security: check file path against Read deny patterns
+    const pathDenied = checkFilePathDenyPolicy(path, "execute_file");
+    if (pathDenied) return pathDenied;
+
     try {
       const result = await executor.executeFile({
         path,
@@ -939,6 +1046,12 @@ server.registerTool(
     }),
   },
   async ({ commands, queries, timeout }) => {
+    // Security: check each command against deny patterns
+    for (const cmd of commands) {
+      const denied = checkDenyPolicy(cmd.command, "batch_execute");
+      if (denied) return denied;
+    }
+
     try {
       // Build batch script with markdown section headers for proper chunking
       const script = commands

@@ -386,18 +386,14 @@ async function main() {
     assertPassthrough(result);
   });
 
-  await test("Bash + curl: not in deny or allow list, security returns ask", () => {
+  await test("Bash + curl: no pattern match, falls through to Stage 2 routing", () => {
     const result = runHook(
       { tool_name: "Bash", tool_input: { command: "curl -s http://example.com" } },
       { CLAUDE_PROJECT_DIR: MOCK_PROJECT_DIR },
     );
-    // curl is not in deny list, but also not in allow list (git:*, ls:*).
-    // evaluateCommand defaults to "ask" when no pattern matches, and the
-    // hook returns permissionDecision: "ask" before reaching Stage 2.
-    assert.equal(result.exitCode, 0);
-    assert.ok(result.stdout.length > 0, "Expected non-empty stdout for ask");
-    const parsed = JSON.parse(result.stdout);
-    assert.equal(parsed.hookSpecificOutput.permissionDecision, "ask");
+    // curl is not in deny or allow list → no explicit pattern match →
+    // security falls through → Stage 2 catches curl → redirect to echo
+    assertRedirect(result, "context-mode");
   });
 
   await test("MCP execute + shell + sudo: denied by security policy", () => {
@@ -512,7 +508,7 @@ async function main() {
     assertPassthrough(result);
   });
 
-  await test("MCP execute + shell + unrecognized command: ask", () => {
+  await test("MCP execute + shell + unrecognized command: passthrough (no explicit pattern)", () => {
     const result = runHook(
       {
         tool_name: "mcp__plugin_context-mode_context-mode__execute",
@@ -520,14 +516,12 @@ async function main() {
       },
       { CLAUDE_PROJECT_DIR: MOCK_PROJECT_DIR },
     );
-    // python3 is not in deny or allow list → evaluateCommand defaults to "ask"
-    assert.equal(result.exitCode, 0);
-    assert.ok(result.stdout.length > 0, "Expected non-empty stdout for ask");
-    const parsed = JSON.parse(result.stdout);
-    assert.equal(parsed.hookSpecificOutput.permissionDecision, "ask");
+    // python3 is not in deny or allow list → no explicit pattern match →
+    // hook has no opinion → passthrough to let Claude Code's native engine decide
+    assertPassthrough(result);
   });
 
-  await test("MCP batch_execute + unrecognized command in batch: ask", () => {
+  await test("MCP batch_execute + unrecognized command in batch: passthrough", () => {
     const result = runHook(
       {
         tool_name: "mcp__plugin_context-mode_context-mode__batch_execute",
@@ -541,11 +535,8 @@ async function main() {
       },
       { CLAUDE_PROJECT_DIR: MOCK_PROJECT_DIR },
     );
-    // python3 not in any pattern → "ask" short-circuits the batch
-    assert.equal(result.exitCode, 0);
-    assert.ok(result.stdout.length > 0, "Expected non-empty stdout for ask");
-    const parsed = JSON.parse(result.stdout);
-    assert.equal(parsed.hookSpecificOutput.permissionDecision, "ask");
+    // python3 not in any pattern → no explicit match → passthrough
+    assertPassthrough(result);
   });
 
   // Cleanup mock dirs

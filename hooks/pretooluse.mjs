@@ -118,9 +118,10 @@ if (tool === "Bash") {
   const command = toolInput.command ?? "";
 
   // Stage 1: Security check against user's deny/allow patterns.
-  // Skip when no policies exist — evaluateCommand defaults to "ask" with
-  // an empty array, but no policies means no settings files were found,
-  // so there is nothing to enforce.
+  // Only act when an explicit pattern matched. When no pattern matches,
+  // evaluateCommand returns { decision: "ask" } with no matchedPattern —
+  // in that case fall through so other hooks (e.g. git-guard) and Claude
+  // Code's native engine can decide.
   if (security) {
     const policies = security.readBashPolicies(process.env.CLAUDE_PROJECT_DIR);
     if (policies.length > 0) {
@@ -135,7 +136,7 @@ if (tool === "Bash") {
         }));
         process.exit(0);
       }
-      if (result.decision === "ask") {
+      if (result.decision === "ask" && result.matchedPattern) {
         console.log(JSON.stringify({
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
@@ -307,7 +308,7 @@ if (tool.includes("context-mode") && tool.endsWith("__execute")) {
         }));
         process.exit(0);
       }
-      if (result.decision === "ask") {
+      if (result.decision === "ask" && result.matchedPattern) {
         console.log(JSON.stringify({
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
@@ -356,7 +357,7 @@ if (tool.includes("context-mode") && tool.endsWith("__execute_file")) {
           }));
           process.exit(0);
         }
-        if (result.decision === "ask") {
+        if (result.decision === "ask" && result.matchedPattern) {
           console.log(JSON.stringify({
             hookSpecificOutput: {
               hookEventName: "PreToolUse",
@@ -390,7 +391,7 @@ if (tool.includes("context-mode") && tool.endsWith("__batch_execute")) {
           }));
           process.exit(0);
         }
-        if (result.decision === "ask") {
+        if (result.decision === "ask" && result.matchedPattern) {
           console.log(JSON.stringify({
             hookSpecificOutput: {
               hookEventName: "PreToolUse",

@@ -62,6 +62,11 @@ async function main() {
     assert.ok(result.stdout.length > 0, "Expected non-empty stdout");
     const parsed = JSON.parse(result.stdout);
     assert.ok(parsed.hookSpecificOutput, "Expected hookSpecificOutput");
+    assert.equal(
+      parsed.hookSpecificOutput.hookEventName,
+      "SessionStart",
+      "Expected hookEventName to be SessionStart",
+    );
     assert.ok(
       parsed.hookSpecificOutput.additionalContext,
       "Expected additionalContext in hookSpecificOutput",

@@ -54,6 +54,7 @@ for await (const chunk of process.stdin) raw += chunk;
 // Output the routing block as additionalContext
 console.log(JSON.stringify({
   hookSpecificOutput: {
+    hookEventName: "SessionStart",
     additionalContext: ROUTING_BLOCK,
   },
 }));

@@ -130,7 +130,7 @@ if (tool === "Bash") {
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
             permissionDecision: "deny",
-            reason: `Blocked by security policy: ${result.matchedPattern}`,
+            reason: `Blocked by security policy: matches deny pattern ${result.matchedPattern}`,
           },
         }));
         process.exit(0);

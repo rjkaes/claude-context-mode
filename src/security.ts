@@ -19,6 +19,8 @@ export interface SecurityPolicy {
  * "Bash(sudo *)" returns "sudo *", "Read(.env)" returns null.
  */
 export function parseBashPattern(pattern: string): string | null {
+  // .+ is greedy: for "Bash(echo (foo))" it captures "echo (foo)"
+  // because $ forces the final \) to match only the last paren.
   const match = pattern.match(/^Bash\((.+)\)$/);
   return match ? match[1] : null;
 }

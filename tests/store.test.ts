@@ -343,7 +343,7 @@ describe("Multi-Source Indexing", () => {
     store.close();
   });
 
-  test("same source can be indexed multiple times", () => {
+  test("re-indexing same source replaces previous entry (dedup)", () => {
     const store = createStore();
     store.index({
       content: "# Part 1\n\nFirst batch.",
@@ -354,8 +354,8 @@ describe("Multi-Source Indexing", () => {
       source: "incremental",
     });
     const stats = store.getStats();
-    assert.equal(stats.sources, 2, "Each index call creates new source entry");
-    assert.ok(stats.chunks >= 2);
+    assert.equal(stats.sources, 1, "Dedup replaces previous source with same label");
+    assert.ok(stats.chunks >= 1);
     store.close();
   });
 });

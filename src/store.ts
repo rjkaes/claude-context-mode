@@ -148,6 +148,11 @@ export class ContentStore {
   #stmtInsertChunkTrigram!: PreparedStatement;
   #stmtInsertVocab!: PreparedStatement;
 
+  // Dedup path (delete previous source with same label before re-indexing)
+  #stmtDeleteChunksByLabel!: PreparedStatement;
+  #stmtDeleteChunksTrigramByLabel!: PreparedStatement;
+  #stmtDeleteSourcesByLabel!: PreparedStatement;
+
   // Search path (hot)
   #stmtSearchPorter!: PreparedStatement;
   #stmtSearchPorterFiltered!: PreparedStatement;
@@ -232,6 +237,18 @@ export class ContentStore {
     );
     this.#stmtInsertVocab = this.#db.prepare(
       "INSERT OR IGNORE INTO vocabulary (word) VALUES (?)",
+    );
+
+    // Dedup path: delete previous source with same label before re-indexing
+    // Prevents stale outputs from accumulating in iterative workflows (build-fix-build)
+    this.#stmtDeleteChunksByLabel = this.#db.prepare(
+      "DELETE FROM chunks WHERE source_id IN (SELECT id FROM sources WHERE label = ?)",
+    );
+    this.#stmtDeleteChunksTrigramByLabel = this.#db.prepare(
+      "DELETE FROM chunks_trigram WHERE source_id IN (SELECT id FROM sources WHERE label = ?)",
+    );
+    this.#stmtDeleteSourcesByLabel = this.#db.prepare(
+      "DELETE FROM sources WHERE label = ?",
     );
 
     // Search path (hot)
@@ -410,6 +427,13 @@ export class ContentStore {
    * Uses cached prepared statements from #prepareStatements().
    */
   #insertChunks(chunks: Chunk[], label: string, text: string): IndexResult {
+    // Dedup: remove previous source with same label so only the latest
+    // output is searchable. Prevents stale results in iterative workflows
+    // like build-fix-build cycles. (See: GitHub issue #67)
+    this.#stmtDeleteChunksByLabel.run(label);
+    this.#stmtDeleteChunksTrigramByLabel.run(label);
+    this.#stmtDeleteSourcesByLabel.run(label);
+
     if (chunks.length === 0) {
       const info = this.#stmtInsertSourceEmpty.run(label);
       return {

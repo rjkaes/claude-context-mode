@@ -16,7 +16,7 @@ import "./suppress-stderr.mjs";
 
 import { ROUTING_BLOCK } from "./routing-block.mjs";
 import { readStdin, getSessionId, getSessionDBPath, getSessionEventsPath, getCleanupFlagPath } from "./session-helpers.mjs";
-import { writeSessionEventsFile, buildSessionDirective, getAllProjectEvents } from "./session-directive.mjs";
+import { writeSessionEventsFile, buildSessionDirective, getSessionEvents, getLatestSessionEvents } from "./session-directive.mjs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
@@ -45,7 +45,7 @@ try {
       db.markResumeConsumed(sessionId);
     }
 
-    const events = getAllProjectEvents(db);
+    const events = getSessionEvents(db, sessionId);
     if (events.length > 0) {
       const eventMeta = writeSessionEventsFile(events, getSessionEventsPath());
       additionalContext += buildSessionDirective("compact", eventMeta);
@@ -60,7 +60,7 @@ try {
     const dbPath = getSessionDBPath();
     const db = new SessionDB({ dbPath });
 
-    const events = getAllProjectEvents(db);
+    const events = getLatestSessionEvents(db);
     if (events.length > 0) {
       const eventMeta = writeSessionEventsFile(events, getSessionEventsPath());
       additionalContext += buildSessionDirective("resume", eventMeta);

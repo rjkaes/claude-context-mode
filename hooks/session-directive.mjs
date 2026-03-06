@@ -1,7 +1,7 @@
 /**
  * Shared session directive builder for all platform adaptors.
  *
- * Contains: groupEvents, writeSessionEventsFile, buildSessionDirective, getAllProjectEvents.
+ * Contains: groupEvents, writeSessionEventsFile, buildSessionDirective, getSessionEvents, getLatestSessionEvents.
  * Each adaptor imports these instead of duplicating the logic.
  */
 
@@ -386,10 +386,22 @@ export function buildSessionDirective(source, eventMeta) {
   return block;
 }
 
-// ── Get ALL events for this project (across all session_ids) ──
-export function getAllProjectEvents(db) {
+// ── Get events for a specific session (used by compact) ──
+export function getSessionEvents(db, sessionId) {
   return db.db.prepare(
     `SELECT session_id, type, category, priority, data, source_hook, created_at
-     FROM session_events ORDER BY created_at ASC`
-  ).all();
+     FROM session_events WHERE session_id = ? ORDER BY created_at ASC`
+  ).all(sessionId);
+}
+
+// ── Get events from the most recent session that has events (used by resume) ──
+export function getLatestSessionEvents(db) {
+  const latest = db.db.prepare(
+    `SELECT m.session_id FROM session_meta m
+     JOIN session_events e ON m.session_id = e.session_id
+     GROUP BY m.session_id
+     ORDER BY m.started_at DESC LIMIT 1`
+  ).get();
+  if (!latest) return [];
+  return getSessionEvents(db, latest.session_id);
 }
